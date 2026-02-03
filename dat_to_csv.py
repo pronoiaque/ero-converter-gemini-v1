@@ -1,11 +1,17 @@
 import csv
 import os
+import sys
 
-# --- CONFIGURATION (FORMAT HD / 52 OCTETS OFFSET) ---
-INPUT_FILE = 'categori_hd.dat'
+# --- CONFIGURATION ---
+if len(sys.argv) > 1:
+    INPUT_FILE = sys.argv[1]
+else:
+    # Recherche automatique d'un fichier .dat récent si categori.dat n'existe pas
+    INPUT_FILE = 'categori_hd.dat'
+
 OUTPUT_FILE = 'categories_hd.csv'
-BLOCK_SIZE = 31       # Taille standard des enregistrements
-START_OFFSET = 52     # Header (16) + Séquence d'initialisation (36) = 52
+BLOCK_SIZE = 31
+START_OFFSET = 52     # Header (16) + Buffer (36)
 ENCODING = 'latin-1'
 
 def main():
@@ -14,32 +20,23 @@ def main():
         return
 
     print(f"Lecture de {INPUT_FILE}...")
-    print(f"Offset de démarrage : {START_OFFSET} octets")
-    print(f"Taille de bloc : {BLOCK_SIZE} octets")
     
     with open(INPUT_FILE, 'rb') as f_in, open(OUTPUT_FILE, 'w', newline='', encoding=ENCODING) as f_out:
         writer = csv.writer(f_out, delimiter=';')
         
-        # 1. Sauter l'en-tête et le bloc technique
-        # On se place directement au début des données utiles (octet 52)
+        # Sauter la zone technique (Header + Buffer)
         f_in.seek(START_OFFSET)
 
         count = 0
         while True:
             block = f_in.read(BLOCK_SIZE)
-            
-            # Fin de fichier
             if not block or len(block) < BLOCK_SIZE:
                 break
 
             try:
-                # Structure du bloc 31 octets :
-                # [CODE 4o] [ESPACE 1o] [TEXTE... ] [NULL] [PADDING]
-                
-                # Extraction CODE
+                # Structure: [CODE 4] [ESPACE 1] [TEXTE...] [NULL] [PADDING]
                 code_raw = block[0:4].decode(ENCODING, errors='ignore')
                 
-                # Extraction TEXTE (du 6ème octet jusqu'au NULL)
                 raw_text = block[5:]
                 null_index = raw_text.find(b'\x00')
                 
@@ -50,8 +47,7 @@ def main():
                 
                 text_final = clean_text.decode(ENCODING).strip()
                 
-                # Filtre : On ignore les lignes vides ou techniques si nécessaire
-                if code_raw.strip(): 
+                if code_raw.strip():
                     writer.writerow([code_raw, text_final])
                     count += 1
 

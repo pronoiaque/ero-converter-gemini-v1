@@ -1,36 +1,47 @@
 import csv
 import os
+import sys
+from datetime import datetime
 
-# --- CONFIGURATION (FORMAT HD - ALIGNEMENT STRICT) ---
-INPUT_FILE = 'categories_hd.csv'
-OUTPUT_FILE = 'categori_hd_regen.dat'
+# --- CONFIGURATION ---
+# 1. FICHIER D'ENTRÉE
+# Par défaut 'categories_hd.csv', ou premier argument de la ligne de commande
+if len(sys.argv) > 1:
+    INPUT_FILE = sys.argv[1]
+else:
+    INPUT_FILE = 'categories_hd.csv'
+
+# 2. FICHIER DE SORTIE
+# Format : categori_YYYYMMDD_HHMMSS.dat
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+OUTPUT_FILE = f"categori_{timestamp}.dat"
+
+# 3. PARAMÈTRES BINAIRES (V4 - CLONAGE PERFECT)
 BLOCK_SIZE = 31
 ENCODING = 'latin-1'
 
-# 1. EN-TÊTE (0-16) : Signature ERO + Métadonnées
-HEADER_BYTES = b'\x45\x52\x4F\x00\xFD\xFD\xFD\xFD\xDD\xDD\xDD\xDD\x41\x00\x00\x00'
+# HEADER EXACT (0-16) copié de Perso_OK
+HEADER_BYTES = bytes.fromhex('45524F00FDFDFDFDDDDDDDDD41000000')
 
-# 2. BLOC TAMPON (16-52) : 36 octets
-# Contient un préfixe technique (5 octets) + un enregistrement "<vide>" (31 octets)
-# Indispensable pour que le premier vrai code (ex: 0003) démarre à l'octet 52.
-BUFFER_BLOCK = (
-    b'\xC0\x05\x00\x00\x5C'       # Préfixe système (5 octets)
-    b'<vide>\x00'                 # Contenu technique
-    b'\xCC' * 24                  # Padding spécifique (0xCC = Ì)
+# BLOC TAMPON EXACT (16-52) copié de Perso_OK (36 octets)
+BUFFER_BLOCK = bytes.fromhex(
+    '4100000000'                      # Préfixe (5 octets)
+    '3C766964653E20'                  # "<vide> " (7 octets)
+    'CCCCCCCCCCCCCCCCCCCCCCCC'        # Padding CC (24 octets)
 )
-# Note : 5 + 7 + 24 = 36 octets.
-# 16 (Header) + 36 (Buffer) = 52. Le compte est bon.
 
 def main():
     if not os.path.exists(INPUT_FILE):
-        print(f"Erreur : {INPUT_FILE} introuvable.")
+        print(f"Erreur : Le fichier d'entrée '{INPUT_FILE}' est introuvable.")
+        print(f"Usage : python csv_to_dat.py [nom_du_fichier.csv]")
         return
 
-    print(f"Génération de {OUTPUT_FILE}...")
-    print("Application du correctif d'alignement (Offset 52)...")
+    print(f"Source : {INPUT_FILE}")
+    print(f"Cible  : {OUTPUT_FILE}")
+    print("Génération en cours (Structure V4 - Clonage Perso_OK)...")
     
     with open(INPUT_FILE, 'r', newline='', encoding=ENCODING) as f_in, open(OUTPUT_FILE, 'wb') as f_out:
-        # Écriture de la structure technique fixe
+        # Écriture de la structure de démarrage (52 octets au total)
         f_out.write(HEADER_BYTES)
         f_out.write(BUFFER_BLOCK)
         
@@ -43,7 +54,7 @@ def main():
             code_str = row[0].strip()
             text_str = row[1].strip()
             
-            # --- BLOC STANDARD (31 OCTETS) ---
+            # --- BLOC RECORD (31 OCTETS) ---
             
             # 1. CODE (4 chars)
             if code_str.isdigit():
@@ -52,7 +63,6 @@ def main():
                 code_fmt = code_str[:4].ljust(4)
             
             # 2. DATA
-            # 31 (Total) - 4 (Code) - 1 (Espace) - 1 (Null) = 25 dispo
             max_text_len = BLOCK_SIZE - 4 - 1 - 1
             
             part_code = code_fmt.encode(ENCODING)
@@ -62,10 +72,8 @@ def main():
             
             payload = part_code + part_sep + part_text + part_null
             
-            # 3. PADDING
-            # Utilisation de 0xCD (Í) pour fidélité aux blocs de données
+            # 3. PADDING STANDARD (0xCD pour les records)
             padding_char = b'\xCD' 
-            
             padding_len = BLOCK_SIZE - len(payload)
             if padding_len > 0:
                 part_padding = padding_char * padding_len
@@ -76,13 +84,12 @@ def main():
             
             # Sécurité taille
             if len(final_block) != BLOCK_SIZE:
-                 final_block = final_block[:BLOCK_SIZE].ljust(BLOCK_SIZE, padding_char)
+                final_block = final_block[:BLOCK_SIZE]
 
             f_out.write(final_block)
             count += 1
 
-    print(f"Terminé : {count} enregistrements écrits.")
-    print(f"Taille finale attendue : 52 + ({count} * 31) octets.")
+    print(f"Terminé : {count} enregistrements écrits dans {OUTPUT_FILE}.")
 
 if __name__ == "__main__":
     main()
