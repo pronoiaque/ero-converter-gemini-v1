@@ -1,64 +1,68 @@
 import csv
 import os
+import struct
 
-# --- CONFIGURATION ---
-INPUT_FILE = 'categori_hd.dat'
+# CONFIGURATION STRICTE
+INPUT_FILE = 'categori.dat' # Ou categori_hd.dat
 OUTPUT_FILE = 'categories_hd.csv'
-BLOCK_SIZE = 32
+BLOCK_SIZE = 31      # Analyse hexadécimale confirme 31 octets exacts
+HEADER_SIZE = 16     # Signature "ERO..." au début
 ENCODING = 'latin-1'
-CSV_DELIMITER = ';'
 
 def main():
     if not os.path.exists(INPUT_FILE):
-        print(f"Erreur : Le fichier {INPUT_FILE} est introuvable.")
+        print(f"Erreur : {INPUT_FILE} introuvable.")
         return
 
-    print(f"Lecture de {INPUT_FILE}...")
+    print(f"Lecture de {INPUT_FILE} (Blocs: {BLOCK_SIZE}o, Header: {HEADER_SIZE}o)...")
     
     with open(INPUT_FILE, 'rb') as f_in, open(OUTPUT_FILE, 'w', newline='', encoding=ENCODING) as f_out:
-        writer = csv.writer(f_out, delimiter=CSV_DELIMITER)
-        # writer.writerow(['CODE', 'LIBELLE']) # Décommenter pour ajouter un header
+        writer = csv.writer(f_out, delimiter=';')
         
+        # 1. Gestion de l'En-tête
+        # On lit les 16 premiers octets pour vérifier/sauter
+        header = f_in.read(HEADER_SIZE)
+        if len(header) < HEADER_SIZE:
+            print("Fichier trop court (pas d'en-tête valide).")
+            return
+            
+        print(f"En-tête détecté (Signature: {header[:3]}). Début des données à l'octet {HEADER_SIZE}.")
+
         count = 0
         while True:
-            # Lecture du bloc fixe
             block = f_in.read(BLOCK_SIZE)
             if not block:
                 break
-            
+                
+            # Gestion des blocs incomplets (fin de fichier)
             if len(block) < BLOCK_SIZE:
-                print(f"Avertissement : Bloc final incomplet ignoré ({len(block)} octets)")
-                break
+                continue 
 
             try:
-                # 1. Extraction du CODE (4 premiers octets)
+                # Structure : [CODE 4o] [ESPACE 1o] [TEXTE... ] [NULL] [PADDING]
+                
+                # Extraction CODE
                 code_raw = block[0:4].decode(ENCODING, errors='ignore')
                 
-                # 2. Vérification du séparateur (Octet 4)
-                # On ne bloque pas si absent, mais on note que c'est la structure attendue
-                # separator = block[4] 
-
-                # 3. Extraction du TEXTE (Octet 5 jusqu'à la fin)
-                # Logique stricte : Lire jusqu'au premier NULL (0x00)
-                raw_text_data = block[5:]
-                null_index = raw_text_data.find(b'\x00')
+                # Extraction TEXTE (du 6ème octet jusqu'au NULL)
+                # Note: block[4] est l'espace (0x20)
+                raw_text = block[5:]
+                null_index = raw_text.find(b'\x00')
                 
                 if null_index != -1:
-                    # On ne garde que ce qu'il y a avant le NULL (ignore le garbage)
-                    clean_text_bytes = raw_text_data[:null_index]
+                    clean_text = raw_text[:null_index]
                 else:
-                    # Si pas de NULL (bloc plein), on prend tout
-                    clean_text_bytes = raw_text_data
+                    clean_text = raw_text # Cas rare sans NULL
                 
-                text_final = clean_text_bytes.decode(ENCODING).strip()
+                text_final = clean_text.decode(ENCODING).strip()
                 
                 writer.writerow([code_raw, text_final])
                 count += 1
 
             except Exception as e:
-                print(f"Erreur de parsing au bloc {count}: {e}")
+                print(f"Erreur bloc {count}: {e}")
 
-    print(f"Terminé : {count} enregistrements exportés vers {OUTPUT_FILE}")
+    print(f"Succès : {count} enregistrements extraits.")
 
 if __name__ == "__main__":
     main()

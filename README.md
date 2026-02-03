@@ -1,42 +1,46 @@
-# Convertisseur Legacy DAT/CSV
+# Convertisseur Legacy DAT/CSV (Version 2.0 - Corrigée)
 
-Ce projet contient des outils de conversion bidirectionnelle entre un format binaire propriétaire (`.dat`) et un format lisible (`.csv`). 
+Ce projet contient les outils de conversion pour le format binaire spécifique `categori.dat` (Format 31 octets).
 
-L'objectif est d'assurer une **réversibilité parfaite** tout en nettoyant les artefacts mémoire (padding sale) présents dans les fichiers originaux.
+## Mises à jour techniques (v2)
+Suite à l'analyse hexadécimale, le format a été corrigé :
+- **Taille de bloc** : 31 octets (au lieu de 32).
+- **En-tête** : Présence d'un header de 16 octets (`ERO...`) au début du fichier.
+- **Padding** : Utilisation du caractère `0xCD` pour le remplissage (fidélité au fichier original).
 
 ## Structure du format binaire (.dat)
 
-Le fichier est composé d'enregistrements de taille fixe (**32 octets**).
+| Position | Taille | Contenu |
+|----------|--------|---------|
+| **En-tête** | 16 | Signature `ERO` + métadonnées fixes |
+| **0-3** | 4      | CODE (Numérique 4 digits) |
+| **4** | 1      | ESPACE (`0x20`) |
+| **5-var**| Var    | TEXTE (Latin-1, max 25 chars) |
+| **var** | 1      | NULL (`0x00`) Terminateur |
+| **var-30**| Var   | PADDING (`0xCD`) |
 
-| Position | Taille | Contenu | Règles |
-|----------|--------|---------|--------|
-| 0-3      | 4      | CODE    | Numérique, cadré à gauche ou avec zéros (ex: "0202") |
-| 4        | 1      | ESPACE  | Séparateur obligatoire (`0x20`) |
-| 5-30     | 26     | TEXTE   | Libellé (encodage Latin-1) |
-| Var.     | 1      | NULL    | Terminateur de chaîne (`0x00`) obligatoire |
-| Var.     | Var.   | PADDING | Remplissage jusqu'à 32 octets (nettoyé avec `0x00`) |
+**Total par enregistrement : 31 octets**
 
 ## Scripts
 
 ### 1. `dat_to_csv.py`
 Lit le fichier binaire.
-- **Nettoyage :** Lit jusqu'au caractère `NULL` et ignore les "données fantômes" (résidus de mémoire) qui suivent.
-- **Sortie :** CSV standard (séparateur `;`).
+- Saute automatiquement l'en-tête de 16 octets.
+- Lit par blocs de 31 octets.
+- Extrait Code et Texte (arrête la lecture au NULL).
 
 ### 2. `csv_to_dat.py`
 Reconstruit le fichier binaire.
-- **Contraintes :**
-    - Force le Code sur 4 caractères.
-    - Insère l'espace séparateur.
-    - Tronque le texte si nécessaire pour garantir la présence du NULL final.
-    - Comble le reste du bloc avec des zéros (`0x00`) pour un fichier propre (sans garbage).
+- Écrit l'en-tête original (indispensable pour la compatibilité).
+- Formate les données sur 31 octets.
+- Remplit l'espace vide avec `0xCD`.
 
 ## Utilisation
 
 ```bash
-# Vers CSV
+# Convertir DAT -> CSV
 python dat_to_csv.py
 
-# Vers DAT (Régénération)
+# Convertir CSV -> DAT
 python csv_to_dat.py
 ```

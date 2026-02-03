@@ -1,73 +1,76 @@
 import csv
 import os
 
-# --- CONFIGURATION ---
+# CONFIGURATION STRICTE
 INPUT_FILE = 'categories_hd.csv'
-OUTPUT_FILE = 'categori_hd_regen.dat'
-BLOCK_SIZE = 32
+OUTPUT_FILE = 'categori_regen.dat'
+BLOCK_SIZE = 31
 ENCODING = 'latin-1'
-CSV_DELIMITER = ';'
+
+# Signature binaire exacte de l'en-tête (récupérée de votre fichier)
+# ERO + padding spécifique
+DEFAULT_HEADER = b'\x45\x52\x4F\x00\xFD\xFD\xFD\xFD\xDD\xDD\xDD\xDD\x41\x00\x00\x00'
 
 def main():
     if not os.path.exists(INPUT_FILE):
         print(f"Erreur : Le fichier {INPUT_FILE} est introuvable.")
         return
 
-    print(f"Génération de {OUTPUT_FILE} depuis {INPUT_FILE}...")
+    print(f"Génération de {OUTPUT_FILE} (Format 31 octets)...")
     
     with open(INPUT_FILE, 'r', newline='', encoding=ENCODING) as f_in, open(OUTPUT_FILE, 'wb') as f_out:
-        reader = csv.reader(f_in, delimiter=CSV_DELIMITER)
+        # 1. Écriture de l'en-tête obligatoire
+        f_out.write(DEFAULT_HEADER)
         
+        reader = csv.reader(f_in, delimiter=';')
         count = 0
+        
         for row in reader:
-            if not row or len(row) < 2:
-                continue
-                
-            code_input = row[0].strip()
-            text_input = row[1].strip()
+            if not row or len(row) < 2: continue
             
-            # --- CONSTRUCTION DU BLOC (32 OCTETS) ---
+            code_str = row[0].strip()
+            text_str = row[1].strip()
             
-            # 1. CODE (4 octets)
-            # Formatage : Si numérique, on padde avec des 0 (202 -> 0202)
-            # Sinon on aligne à gauche avec des espaces
-            if code_input.isdigit():
-                code_formatted = f"{int(code_input):04d}"
+            # --- CONSTRUCTION DU BLOC (31 OCTETS) ---
+            
+            # 1. CODE (4 chars)
+            if code_str.isdigit():
+                code_fmt = f"{int(code_str):04d}"
             else:
-                code_formatted = code_input[:4].ljust(4)
+                code_fmt = code_str[:4].ljust(4)
             
-            part_code = code_formatted.encode(ENCODING)
-
-            # 2. SEPARATEUR (1 octet)
-            part_sep = b'\x20' # Espace
-
-            # 3. TEXTE (Variable, suivi d'un NULL)
-            # Calcul de l'espace disponible pour le texte :
-            # 32 (Total) - 4 (Code) - 1 (Sep) - 1 (Null obligatoire) = 26 octets max
-            max_text_len = BLOCK_SIZE - len(part_code) - len(part_sep) - 1
+            # 2. DATA
+            # Code (4) + Espace (1) + Texte (N) + Null (1) <= 31
+            # Espace dispo pour le texte = 31 - 4 - 1 - 1 = 25 caractères max !
+            max_text_len = BLOCK_SIZE - 4 - 1 - 1
             
-            part_text = text_input.encode(ENCODING)[:max_text_len]
-            part_null = b'\x00'
+            part_code = code_fmt.encode(ENCODING)      # 4 octets
+            part_sep = b'\x20'                         # 1 octet
+            part_text = text_str.encode(ENCODING)[:max_text_len]
+            part_null = b'\x00'                        # 1 octet
             
-            # 4. PADDING (Remplissage)
-            # On calcule ce qu'il reste à combler pour atteindre 32 octets
-            current_len = len(part_code) + len(part_sep) + len(part_text) + len(part_null)
-            padding_len = BLOCK_SIZE - current_len
-            part_padding = b'\x00' * padding_len
+            payload = part_code + part_sep + part_text + part_null
             
-            # Assemblage
-            final_block = part_code + part_sep + part_text + part_null + part_padding
+            # 3. PADDING (Remplissage propre avec 0xCD)
+            # Standardisation à 0xCD (comme vu dans le dump) pour fidélité max
+            padding_char = b'\xCD' 
             
-            # Sécurité finale avant écriture
+            padding_len = BLOCK_SIZE - len(payload)
+            if padding_len > 0:
+                part_padding = padding_char * padding_len
+            else:
+                part_padding = b''
+            
+            final_block = payload + part_padding
+            
+            # Sécurité
             if len(final_block) != BLOCK_SIZE:
-                # Ne devrait théoriquement pas arriver avec le calcul ci-dessus
-                print(f"Erreur dimensionnelle ligne {count}")
-                final_block = final_block[:BLOCK_SIZE].ljust(BLOCK_SIZE, b'\x00')
+                final_block = final_block[:BLOCK_SIZE]
 
             f_out.write(final_block)
             count += 1
 
-    print(f"Succès : {count} blocs écrits (Format strict 32o).")
+    print(f"Terminé : {count} blocs écrits (+ En-tête).")
 
 if __name__ == "__main__":
     main()
