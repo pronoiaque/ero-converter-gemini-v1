@@ -1,46 +1,34 @@
-# Convertisseur Legacy DAT/CSV (Version 2.0 - Corrigée)
+# Convertisseur Legacy DAT/CSV - Version 3 (Alignement HD Fix)
 
-Ce projet contient les outils de conversion pour le format binaire spécifique `categori.dat` (Format 31 octets).
+Ce pack contient les scripts corrigés pour l'alignement strict requis par le logiciel "ERO" (Format HD).
 
-## Mises à jour techniques (v2)
-Suite à l'analyse hexadécimale, le format a été corrigé :
-- **Taille de bloc** : 31 octets (au lieu de 32).
-- **En-tête** : Présence d'un header de 16 octets (`ERO...`) au début du fichier.
-- **Padding** : Utilisation du caractère `0xCD` pour le remplissage (fidélité au fichier original).
+## Problème Résolu (V3)
+Le logiciel final affichait un décalage car il attend les données à l'octet **52**, alors que la version précédente écrivait à l'octet 47 ou 16.
+Ce correctif insère la séquence technique exacte (Header + Buffer) pour aligner parfaitement les données.
 
-## Structure du format binaire (.dat)
+## Structure du fichier généré
 
-| Position | Taille | Contenu |
-|----------|--------|---------|
-| **En-tête** | 16 | Signature `ERO` + métadonnées fixes |
-| **0-3** | 4      | CODE (Numérique 4 digits) |
-| **4** | 1      | ESPACE (`0x20`) |
-| **5-var**| Var    | TEXTE (Latin-1, max 25 chars) |
-| **var** | 1      | NULL (`0x00`) Terminateur |
-| **var-30**| Var   | PADDING (`0xCD`) |
-
-**Total par enregistrement : 31 octets**
+1. **00 - 16** : En-tête ERO (16 octets)
+2. **16 - 21** : Préfixe système (5 octets)
+3. **21 - 52** : Bloc technique `<vide>` (31 octets)
+   *(Total zone technique : 52 octets)*
+4. **52 - Fin** : Enregistrements (Blocs de 31 octets)
 
 ## Scripts
 
-### 1. `dat_to_csv.py`
-Lit le fichier binaire.
-- Saute automatiquement l'en-tête de 16 octets.
-- Lit par blocs de 31 octets.
-- Extrait Code et Texte (arrête la lecture au NULL).
+### `csv_to_dat.py` (Prioritaire)
+Utilisez ce script pour regénérer votre fichier `.dat`.
+- Prend `categories_hd.csv` en entrée.
+- Produit `categori_hd_regen.dat`.
+- **Garantie** : Le code "0003" (ou le premier de votre liste) sera écrit exactement à l'octet 52.
 
-### 2. `csv_to_dat.py`
-Reconstruit le fichier binaire.
-- Écrit l'en-tête original (indispensable pour la compatibilité).
-- Formate les données sur 31 octets.
-- Remplit l'espace vide avec `0xCD`.
+### `dat_to_csv.py`
+Pour extraire les données d'un fichier `.dat` existant.
+- Configuré pour ignorer les 52 premiers octets techniques.
 
 ## Utilisation
 
 ```bash
-# Convertir DAT -> CSV
-python dat_to_csv.py
-
-# Convertir CSV -> DAT
 python csv_to_dat.py
 ```
+Ensuite, renommez `categori_hd_regen.dat` en `categori_hd.dat` pour le tester dans votre application.

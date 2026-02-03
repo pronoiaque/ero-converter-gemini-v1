@@ -1,26 +1,38 @@
 import csv
 import os
 
-# CONFIGURATION STRICTE
+# --- CONFIGURATION (FORMAT HD - ALIGNEMENT STRICT) ---
 INPUT_FILE = 'categories_hd.csv'
-OUTPUT_FILE = 'categori_regen.dat'
+OUTPUT_FILE = 'categori_hd_regen.dat'
 BLOCK_SIZE = 31
 ENCODING = 'latin-1'
 
-# Signature binaire exacte de l'en-tête (récupérée de votre fichier)
-# ERO + padding spécifique
-DEFAULT_HEADER = b'\x45\x52\x4F\x00\xFD\xFD\xFD\xFD\xDD\xDD\xDD\xDD\x41\x00\x00\x00'
+# 1. EN-TÊTE (0-16) : Signature ERO + Métadonnées
+HEADER_BYTES = b'\x45\x52\x4F\x00\xFD\xFD\xFD\xFD\xDD\xDD\xDD\xDD\x41\x00\x00\x00'
+
+# 2. BLOC TAMPON (16-52) : 36 octets
+# Contient un préfixe technique (5 octets) + un enregistrement "<vide>" (31 octets)
+# Indispensable pour que le premier vrai code (ex: 0003) démarre à l'octet 52.
+BUFFER_BLOCK = (
+    b'\xC0\x05\x00\x00\x5C'       # Préfixe système (5 octets)
+    b'<vide>\x00'                 # Contenu technique
+    b'\xCC' * 24                  # Padding spécifique (0xCC = Ì)
+)
+# Note : 5 + 7 + 24 = 36 octets.
+# 16 (Header) + 36 (Buffer) = 52. Le compte est bon.
 
 def main():
     if not os.path.exists(INPUT_FILE):
-        print(f"Erreur : Le fichier {INPUT_FILE} est introuvable.")
+        print(f"Erreur : {INPUT_FILE} introuvable.")
         return
 
-    print(f"Génération de {OUTPUT_FILE} (Format 31 octets)...")
+    print(f"Génération de {OUTPUT_FILE}...")
+    print("Application du correctif d'alignement (Offset 52)...")
     
     with open(INPUT_FILE, 'r', newline='', encoding=ENCODING) as f_in, open(OUTPUT_FILE, 'wb') as f_out:
-        # 1. Écriture de l'en-tête obligatoire
-        f_out.write(DEFAULT_HEADER)
+        # Écriture de la structure technique fixe
+        f_out.write(HEADER_BYTES)
+        f_out.write(BUFFER_BLOCK)
         
         reader = csv.reader(f_in, delimiter=';')
         count = 0
@@ -31,7 +43,7 @@ def main():
             code_str = row[0].strip()
             text_str = row[1].strip()
             
-            # --- CONSTRUCTION DU BLOC (31 OCTETS) ---
+            # --- BLOC STANDARD (31 OCTETS) ---
             
             # 1. CODE (4 chars)
             if code_str.isdigit():
@@ -40,19 +52,18 @@ def main():
                 code_fmt = code_str[:4].ljust(4)
             
             # 2. DATA
-            # Code (4) + Espace (1) + Texte (N) + Null (1) <= 31
-            # Espace dispo pour le texte = 31 - 4 - 1 - 1 = 25 caractères max !
+            # 31 (Total) - 4 (Code) - 1 (Espace) - 1 (Null) = 25 dispo
             max_text_len = BLOCK_SIZE - 4 - 1 - 1
             
-            part_code = code_fmt.encode(ENCODING)      # 4 octets
-            part_sep = b'\x20'                         # 1 octet
+            part_code = code_fmt.encode(ENCODING)
+            part_sep = b'\x20'
             part_text = text_str.encode(ENCODING)[:max_text_len]
-            part_null = b'\x00'                        # 1 octet
+            part_null = b'\x00'
             
             payload = part_code + part_sep + part_text + part_null
             
-            # 3. PADDING (Remplissage propre avec 0xCD)
-            # Standardisation à 0xCD (comme vu dans le dump) pour fidélité max
+            # 3. PADDING
+            # Utilisation de 0xCD (Í) pour fidélité aux blocs de données
             padding_char = b'\xCD' 
             
             padding_len = BLOCK_SIZE - len(payload)
@@ -63,14 +74,15 @@ def main():
             
             final_block = payload + part_padding
             
-            # Sécurité
+            # Sécurité taille
             if len(final_block) != BLOCK_SIZE:
-                final_block = final_block[:BLOCK_SIZE]
+                 final_block = final_block[:BLOCK_SIZE].ljust(BLOCK_SIZE, padding_char)
 
             f_out.write(final_block)
             count += 1
 
-    print(f"Terminé : {count} blocs écrits (+ En-tête).")
+    print(f"Terminé : {count} enregistrements écrits.")
+    print(f"Taille finale attendue : 52 + ({count} * 31) octets.")
 
 if __name__ == "__main__":
     main()
